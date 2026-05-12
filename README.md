@@ -23,3 +23,7 @@ python main.py
 7. Actualizar peso (raíz)
 8. Actualizar subdoc/array
 9. Eliminar paciente
+
+### ✨ Cancelación de operaciones
+
+🔙 Dentro de cualquier opción del menú, escribir **`x`** en cualquier campo permite **cancelar la operación y volver al menú principal** sin necesidad de cerrar el programa con `Ctrl + C`.
