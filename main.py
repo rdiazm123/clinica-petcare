@@ -1,34 +1,76 @@
+"""
+CLÍNICA VETERINARIA PETCARE
+Sistema CRUD con MongoDB + PyMongo
+Permite cancelar cualquier operación escribiendo 'x' en cualquier prompt.
+"""
+
 from pymongo import MongoClient
 from datetime import datetime
-from bson import ObjectId
 
+# === CONEXIÓN ===
 client = MongoClient("mongodb://localhost:27017/")
 db = client["clinica_petcare"]
 coleccion = db["pacientes"]
 
 
-def crear_paciente():
-    print("\n--- CREAR PACIENTE ---")
-    nombre = input("Nombre mascota: ")
-    especie = input("Especie: ")
-    raza = input("Raza: ")
-    edad = int(input("Edad: "))
-    peso = float(input("Peso (kg): "))
+# === EXCEPCIÓN PERSONALIZADA PARA CANCELAR ===
+class Cancelado(Exception):
+    """Se lanza cuando el usuario escribe 'x' para volver al menú."""
+    pass
 
-    print("-- Datos del dueño --")
+
+# === HELPERS DE ENTRADA CON CANCELACIÓN ===
+def pedir(texto, tipo=str):
+    """
+    Pide un dato al usuario. Si escribe 'x' (o 'X'), cancela y vuelve al menú.
+    tipo puede ser str, int, float.
+    """
+    while True:
+        valor = input(f"{texto} (o 'x' para cancelar): ").strip()
+        if valor.lower() == "x":
+            raise Cancelado()
+        if valor == "":
+            print("⚠ No puede estar vacío. Intenta de nuevo.")
+            continue
+        try:
+            return tipo(valor)
+        except ValueError:
+            print(f"⚠ Valor inválido. Se esperaba {tipo.__name__}.")
+
+
+def pedir_fecha(texto):
+    """Pide una fecha YYYY-MM-DD, permite cancelar con 'x'."""
+    while True:
+        valor = input(f"{texto} YYYY-MM-DD (o 'x' para cancelar): ").strip()
+        if valor.lower() == "x":
+            raise Cancelado()
+        try:
+            return datetime.strptime(valor, "%Y-%m-%d")
+        except ValueError:
+            print("⚠ Formato inválido. Usa YYYY-MM-DD (ej: 2025-04-15).")
+
+
+# === OPERACIONES CRUD ===
+def crear_paciente():
+    print("\n--- CREAR PACIENTE --- ")
+    nombre = pedir("Nombre mascota")
+    especie = pedir("Especie")
+    raza = pedir("Raza")
+    edad = pedir("Edad", int)
+    peso = pedir("Peso (kg)", float)
+
     dueño = {
-        "nombre": input("Nombre dueño: "),
-        "rut": input("RUT: "),
-        "telefono": input("Teléfono: "),
-        "email": input("Email: ")
+        "nombre": pedir("Nombre dueño"),
+        "rut": pedir("RUT"),
+        "telefono": pedir("Teléfono"),
+        "email": pedir("Email")
     }
 
-    print("-- Primera consulta --")
     consulta = {
         "fecha": datetime.now(),
-        "motivo": input("Motivo: "),
-        "veterinario": input("Veterinario: "),
-        "costo": int(input("Costo: "))
+        "motivo": pedir("Motivo consulta"),
+        "veterinario": pedir("Veterinario"),
+        "costo": pedir("Costo", int)
     }
 
     doc = {
@@ -44,106 +86,124 @@ def crear_paciente():
 
 def listar_pacientes():
     print("\n--- LISTADO DE PACIENTES ---")
+    total = 0
     for p in coleccion.find():
-        print(f"\n🐾 {p['nombre']} ({p['especie']} - {p['raza']}) "
+        total += 1
+        print(f"🐾 {p['nombre']} ({p['especie']} - {p['raza']}) "
               f"| Edad: {p['edad']} | Dueño: {p['dueño']['nombre']}")
-        print(f"   Consultas: {len(p['historial_consultas'])} | ID: {p['_id']}")
+    print(f"\nTotal: {total} pacientes")
 
 
 def buscar_por_comparacion():
-    print("\n--- BÚSQUEDA POR OPERADOR DE COMPARACIÓN ---")
-    edad_min = int(input("Edad mínima ($gte): "))
-    resultados = coleccion.find(
-        {"edad": {"$gte": edad_min}},
-        {"nombre": 1, "especie": 1, "edad": 1, "peso": 1, "_id": 0}
-    )
+    print("\n--- BUSCAR POR EDAD (>=) ---")
+    edad = pedir("Edad mínima", int)
+    resultados = list(coleccion.find({"edad": {"$gte": edad}},
+                                     {"nombre": 1, "edad": 1, "_id": 0}))
+    if not resultados:
+        print("Sin resultados.")
     for r in resultados:
         print(r)
 
 
 def buscar_regex():
-    print("\n--- BÚSQUEDA POR REGEX ---")
-    patron = input("Texto a buscar en nombre (ej: 'lu'): ")
-    resultados = coleccion.find({"nombre": {"$regex": patron, "$options": "i"}})
+    print("\n--- BUSCAR POR NOMBRE (regex) ---")
+    patron = pedir("Texto a buscar")
+    resultados = list(coleccion.find({"nombre": {"$regex": patron, "$options": "i"}}))
+    if not resultados:
+        print("Sin resultados.")
     for r in resultados:
         print(f"🔎 {r['nombre']} - {r['especie']}")
 
 
 def buscar_por_fechas():
-    print("\n--- BÚSQUEDA POR RANGO DE FECHAS ---")
-    desde = input("Fecha desde (YYYY-MM-DD): ")
-    hasta = input("Fecha hasta (YYYY-MM-DD): ")
-    f1 = datetime.strptime(desde, "%Y-%m-%d")
-    f2 = datetime.strptime(hasta, "%Y-%m-%d")
-    resultados = coleccion.find({"fecha_registro": {"$gte": f1, "$lte": f2}})
+    print("\n--- BUSCAR POR RANGO DE FECHAS ---")
+    f1 = pedir_fecha("Desde")
+    f2 = pedir_fecha("Hasta")
+    resultados = list(coleccion.find({"fecha_registro": {"$gte": f1, "$lte": f2}}))
+    if not resultados:
+        print("Sin resultados.")
     for r in resultados:
-        print(f"📅 {r['nombre']} - registrado: {r['fecha_registro'].date()}")
+        print(f"📅 {r['nombre']} - {r['fecha_registro'].date()}")
 
 
-def buscar_en_subdoc_o_array():
-    print("\n--- BÚSQUEDA EN SUBDOC / ARRAY ---")
-    print("1. Por nombre del dueño (subdoc)")
-    print("2. Por veterinario en historial (array)")
-    op = input("Opción: ")
+def buscar_subdoc_array():
+    print("\n--- BUSCAR EN SUBDOC/ARRAY ---")
+    print("1. Por nombre del dueño")
+    print("2. Por veterinario en historial")
+    op = pedir("Opción")
     if op == "1":
-        nombre = input("Nombre del dueño: ")
-        resultados = coleccion.find({"dueño.nombre": {"$regex": nombre, "$options": "i"}})
+        nombre = pedir("Nombre dueño")
+        cursor = coleccion.find({"dueño.nombre": {"$regex": nombre, "$options": "i"}})
+    elif op == "2":
+        vet = pedir("Veterinario")
+        cursor = coleccion.find({"historial_consultas.veterinario": vet})
     else:
-        vet = input("Veterinario: ")
-        resultados = coleccion.find({"historial_consultas.veterinario": vet})
-    for r in resultados:
+        print("⚠ Opción inválida.")
+        return
+    encontrados = False
+    for r in cursor:
+        encontrados = True
         print(f"➡ {r['nombre']} | Dueño: {r['dueño']['nombre']}")
+    if not encontrados:
+        print("Sin resultados.")
 
 
 def actualizar_raiz():
-    print("\n--- ACTUALIZAR CAMPO RAÍZ ---")
-    nombre = input("Nombre del paciente: ")
+    print("\n--- ACTUALIZAR PESO ---")
+    nombre = pedir("Nombre paciente")
     antes = coleccion.find_one({"nombre": nombre})
     if not antes:
         print("❌ No encontrado.")
         return
     print(f"Antes: peso = {antes['peso']}")
-    nuevo_peso = float(input("Nuevo peso: "))
-    coleccion.update_one({"nombre": nombre}, {"$set": {"peso": nuevo_peso}})
-    despues = coleccion.find_one({"nombre": nombre})
-    print(f"Después: peso = {despues['peso']} ✅")
+    nuevo = pedir("Nuevo peso", float)
+    coleccion.update_one({"nombre": nombre}, {"$set": {"peso": nuevo}})
+    print(f"Después: peso = {coleccion.find_one({'nombre': nombre})['peso']} ✅")
 
 
-def actualizar_subdoc_o_array():
-    print("\n--- ACTUALIZAR SUBDOC / ARRAY ---")
-    nombre = input("Nombre del paciente: ")
-    print("1. Cambiar teléfono del dueño (subdoc)")
-    print("2. Agregar nueva consulta al historial (array - $push)")
-    op = input("Opción: ")
+def actualizar_sub_array():
+    print("\n--- ACTUALIZAR SUBDOC/ARRAY ---")
+    nombre = pedir("Nombre paciente")
+    if not coleccion.find_one({"nombre": nombre}):
+        print("❌ No encontrado.")
+        return
+    print("1. Cambiar teléfono del dueño")
+    print("2. Agregar consulta al historial")
+    op = pedir("Opción")
     if op == "1":
-        tel = input("Nuevo teléfono: ")
-        coleccion.update_one({"nombre": nombre},
-                             {"$set": {"dueño.telefono": tel}})
-    else:
+        tel = pedir("Nuevo teléfono")
+        coleccion.update_one({"nombre": nombre}, {"$set": {"dueño.telefono": tel}})
+    elif op == "2":
         nueva = {
             "fecha": datetime.now(),
-            "motivo": input("Motivo: "),
-            "veterinario": input("Veterinario: "),
-            "costo": int(input("Costo: "))
+            "motivo": pedir("Motivo"),
+            "veterinario": pedir("Veterinario"),
+            "costo": pedir("Costo", int)
         }
-        coleccion.update_one({"nombre": nombre},
-                             {"$push": {"historial_consultas": nueva}})
-    print("✅ Actualización realizada.")
+        coleccion.update_one({"nombre": nombre}, {"$push": {"historial_consultas": nueva}})
+    else:
+        print("⚠ Opción inválida.")
+        return
+    print("✅ Actualizado.")
 
 
 def eliminar_paciente():
     print("\n--- ELIMINAR PACIENTE ---")
-    nombre = input("Nombre del paciente a eliminar: ")
+    nombre = pedir("Nombre paciente a eliminar")
     doc = coleccion.find_one({"nombre": nombre})
     if not doc:
         print("❌ No encontrado.")
         return
     print(f"Se eliminará: {doc['nombre']} ({doc['especie']})")
-    if input("Confirmar (s/n): ").lower() == "s":
-        res = coleccion.delete_one({"nombre": nombre})
-        print(f"✅ Eliminados: {res.deleted_count}")
+    confirma = pedir("Confirmar (s/n)")
+    if confirma.lower() == "s":
+        coleccion.delete_one({"nombre": nombre})
+        print("✅ Eliminado.")
+    else:
+        print("Operación cancelada.")
 
 
+# === MENÚ PRINCIPAL ===
 def menu():
     opciones = {
         "1": ("Crear paciente", crear_paciente),
@@ -151,9 +211,9 @@ def menu():
         "3": ("Buscar por comparación ($gte)", buscar_por_comparacion),
         "4": ("Buscar por regex", buscar_regex),
         "5": ("Buscar por rango de fechas", buscar_por_fechas),
-        "6": ("Buscar en subdoc/array", buscar_en_subdoc_o_array),
+        "6": ("Buscar en subdoc/array", buscar_subdoc_array),
         "7": ("Actualizar campo raíz", actualizar_raiz),
-        "8": ("Actualizar subdoc/array", actualizar_subdoc_o_array),
+        "8": ("Actualizar subdoc/array", actualizar_sub_array),
         "9": ("Eliminar paciente", eliminar_paciente),
         "0": ("Salir", None)
     }
@@ -161,17 +221,20 @@ def menu():
         print("\n========= CLÍNICA PETCARE =========")
         for k, (desc, _) in opciones.items():
             print(f"{k}. {desc}")
-        op = input("Opción: ")
+        print("(Dentro de cualquier opción, escribe 'x' para cancelar)")
+        op = input("Opción: ").strip()
         if op == "0":
             print("👋 Hasta luego.")
             break
         if op in opciones:
             try:
                 opciones[op][1]()
+            except Cancelado:
+                print("↩ Operación cancelada. Volviendo al menú principal...")
             except Exception as e:
                 print(f"⚠ Error: {e}")
         else:
-            print("Opción inválida.")
+            print("⚠ Opción inválida.")
 
 
 if __name__ == "__main__":
